@@ -266,6 +266,15 @@
   const sendBtn = document.getElementById('send');
   const chipsEl = document.getElementById('chips');
 
+  // --- DeepSeek API config -------------------------------------------
+  // WARNING: this key is embedded in client-side code and is visible to
+  // anyone who views the page source / repo. Anyone could copy it and
+  // use it on your DeepSeek account. Only use this setup for a low-risk
+  // demo, never for anything you care about protecting.
+  const DEEPSEEK_API_KEY = "sk-7cc01f63294e4574acaabfbbdc6b663d";
+  const DEEPSEEK_URL = "https://api.deepseek.com/chat/completions";
+  const DEEPSEEK_MODEL = "deepseek-chat";
+
   const STOPWORDS = new Set(("the a an and or of to in on for with is are was were be been "
     + "this that these those it its as at by from your you we our i he she they them "
     + "will can may about into over under more most such not no do does did has have had "
@@ -515,6 +524,97 @@
     return html;
   }
 
+  function buildSystemPrompt(){
+    const kbText = knowledgeBase.map(c => `--- ${c.title} (${c.url}) ---\n${c.text}`).join('\n\n');
+    return `You are the Hush Coffee Shop Assistant, a friendly helper for the site hushcoffeeshop.com ("Still. Warm. Premium.").
+Answer questions ONLY using the site content provided below. If the answer isn't in the content, say you don't have that
+information on the site and suggest checking their Instagram @hushcoffeeshop. Keep answers short, warm, and conversational.
+When listing menu items with prices, use a simple bullet list.
+
+SITE CONTENT:
+${kbText}`;
+  }
+
+  async function callDeepSeek(query){
+    const res = await fetch(DEEPSEEK_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${DEEPSEEK_API_KEY}`
+      },
+      body: JSON.stringify({
+        model: DEEPSEEK_MODEL,
+        messages: [
+          { role: 'system', content: buildSystemPrompt() },
+          { role: 'user', content: query }
+        ],
+        temperature: 0.4
+      })
+    });
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '');
+      throw new Error(`DeepSeek API error ${res.status}: ${errText}`);
+    }
+    const data = await res.json();
+    return data.choices?.[0]?.message?.content?.trim() || "Sorry, I didn't get a response — try asking again.";
+  }
+
+  function addTypingRow(){
+    const row = document.createElement('div');
+    row.className = 'row bot';
+    row.id = 'typing-row';
+    const bubble = document.createElement('div');
+    bubble.className = 'bubble';
+    bubble.innerHTML = '<p>…</p>';
+    row.appendChild(bubble);
+    chatEl.appendChild(row);
+    chatEl.scrollTop = chatEl.scrollHeight;
+  }
+
+  function removeTypingRow(){
+    const row = document.getElementById('typing-row');
+    if (row) row.remove();
+  }
+
+  function markdownLiteToHtml(text){
+    // Minimal formatting: escape, then turn "- item" lines into <li>, keep paragraphs.
+    const escaped = escapeHtml(text);
+    const lines = escaped.split('\n');
+    let html = '';
+    let inList = false;
+    lines.forEach(line => {
+      const trimmed = line.trim();
+      if (/^[-*]\s+/.test(trimmed)) {
+        if (!inList) { html += '<ul>'; inList = true; }
+        html += `<li>${trimmed.replace(/^[-*]\s+/, '')}</li>`;
+      } else {
+        if (inList) { html += '</ul>'; inList = false; }
+        if (trimmed) html += `<p>${trimmed}</p>`;
+      }
+    });
+    if (inList) html += '</ul>';
+    return html || `<p>${escaped}</p>`;
+  }
+
+  async function answerQueryViaApi(query){
+    addTypingRow();
+    sendBtn.disabled = true;
+    input.disabled = true;
+    try {
+      const reply = await callDeepSeek(query);
+      removeTypingRow();
+      addRow('bot', markdownLiteToHtml(reply));
+    } catch (err) {
+      removeTypingRow();
+      addRow('bot', `<p>Sorry, I couldn't reach the assistant right now (${escapeHtml(err.message)}). Please try again in a moment.</p>`);
+      console.error(err);
+    } finally {
+      sendBtn.disabled = false;
+      input.disabled = false;
+      input.focus();
+    }
+  }
+
   function answerQuery(query){
     // 1. Small talk — no need to touch the knowledge base at all.
     const smallTalk = detectSmallTalk(query);
@@ -570,7 +670,7 @@
     if (!q) return;
     addRow('user', escapeHtml(q));
     input.value = '';
-    setTimeout(() => answerQuery(q), 150); // tiny delay so it doesn't feel instant/robotic
+    answerQueryViaApi(q);
   });
 
   function addChip(label){
