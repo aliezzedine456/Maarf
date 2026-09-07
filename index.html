@@ -275,8 +275,7 @@
   let df = new Map();       // term -> number of chunks containing it
   let docTerms = [];        // per-chunk term frequency map
   let totalDocs = 0;
-  let conversation = [];    // {role, content} history sent to the API
-  const MAX_CONTEXT_CHARS = 6000; // if the whole KB fits under this, just send all of it
+  let menuItems = [];       // parsed {name, price, url, title} from the KB
 
   function tokenize(text){
     return (text.toLowerCase().match(/[a-z0-9]+/g) || [])
@@ -320,14 +319,142 @@
     return knowledgeBase.reduce((sum, c) => sum + (c.text || '').length, 0);
   }
 
-  // Decide which chunks to hand to the model as grounding context.
-  // Small KB -> send everything so the model has full context (handles
-  // typos, rephrasing, "tell me about X" style questions, etc).
-  // Larger KB -> fall back to the top matches from the local search.
-  function pickContextChunks(query){
-    if (totalKbChars() <= MAX_CONTEXT_CHARS) return knowledgeBase;
-    const results = search(query, 5);
-    return results.length ? results.map(r => r.chunk) : knowledgeBase.slice(0, 3);
+  // --- Fuzzy matching (typo tolerance) -----------------------------------
+
+  function levenshtein(a, b){
+    if (a === b) return 0;
+    const m = a.length, n = b.length;
+    if (m === 0) return n;
+    if (n === 0) return m;
+    let prev = new Array(n + 1);
+    let curr = new Array(n + 1);
+    for (let j = 0; j <= n; j++) prev[j] = j;
+    for (let i = 1; i <= m; i++){
+      curr[0] = i;
+      for (let j = 1; j <= n; j++){
+        const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+        curr[j] = Math.min(prev[j] + 1, curr[j - 1] + 1, prev[j - 1] + cost);
+      }
+      [prev, curr] = [curr, prev];
+    }
+    return prev[n];
+  }
+
+  // How tolerant we are of typos scales with word length.
+  function fuzzyMatch(a, b){
+    if (a === b) return true;
+    if (a.length < 3 || b.length < 3) return false;
+    if (b.includes(a) || a.includes(b)) return true;
+    const dist = levenshtein(a, b);
+    const threshold = Math.max(a.length, b.length) >= 7 ? 2 : 1;
+    return dist <= threshold;
+  }
+
+  // --- Menu parsing ---------------------------------------------------
+  // Scraped page text is a flat line dump, e.g.:
+  //   Cheese Croissant
+  //   350,000 L.L.
+  //   Chocolate Croissant
+  //   Zaaatar Croissant
+  //   250,000 L.L.
+  // A price line applies to every item line since the previous price
+  // (this also naturally captures "these flavors share one price" menus).
+
+  const PRICE_LINE = /^[\d][\d,]*(?:\.\d+)?\s*(?:l\.?l\.?|lbp|\$|usd)\s*$/i;
+  const MENU_START = /^(our menu|the menu|menu)$/i;
+  const MENU_END = /^(moments|gallery|about|contact|the .* experience|photographs coming soon\.?)$/i;
+
+  function parseMenuFromChunk(chunk){
+    const lines = chunk.text.split('\n').map(l => l.trim()).filter(Boolean);
+    let inMenu = false;
+    let pending = [];
+    const items = [];
+
+    for (const line of lines){
+      if (MENU_START.test(line)){ inMenu = true; continue; }
+      if (inMenu && MENU_END.test(line)){ inMenu = false; continue; }
+      if (!inMenu) continue;
+
+      if (PRICE_LINE.test(line)){
+        pending.forEach(name => items.push({ name, price: line, url: chunk.url, title: chunk.title }));
+        pending = [];
+      } else {
+        pending.push(line);
+      }
+    }
+    // leftover items with no trailing price found — still list them, price unknown
+    pending.forEach(name => items.push({ name, price: null, url: chunk.url, title: chunk.title }));
+    return items;
+  }
+
+  function parseMenu(chunks){
+    return chunks.flatMap(parseMenuFromChunk);
+  }
+
+  // --- Small talk detection -----------------------------------------
+
+  const GREETING_RE = /^(hi|hello|hey|hiya|yo|good morning|good afternoon|good evening|salam|hala|marhaba)[!.\s]*$/i;
+  const THANKS_RE = /^(thanks|thank you|thx|ty|appreciate it)[!.\s]*$/i;
+  const BYE_RE = /^(bye|goodbye|see ya|see you|later|cya)[!.\s]*$/i;
+  const HOWAREYOU_RE = /how are you|how's it going|how are u/i;
+
+  const GREETING_REPLIES = [
+    "Hello! Welcome to Hush. Ask me about the menu, hours, or where to find us.",
+    "Hi there! What can I help you find — menu, prices, or location?",
+    "Hey! Happy to help — ask away about Hush's menu or anything else on the site."
+  ];
+  const THANKS_REPLIES = [
+    "You're welcome! Anything else I can help with?",
+    "Anytime! Let me know if you have more questions.",
+    "Glad to help!"
+  ];
+  const BYE_REPLIES = [
+    "See you soon — enjoy your visit to Hush!",
+    "Bye for now! Come back anytime with questions.",
+    "Take care!"
+  ];
+
+  function detectSmallTalk(query){
+    const q = query.trim();
+    if (GREETING_RE.test(q)) return pick(GREETING_REPLIES);
+    if (THANKS_RE.test(q)) return pick(THANKS_REPLIES);
+    if (BYE_RE.test(q)) return pick(BYE_REPLIES);
+    if (HOWAREYOU_RE.test(q)) return "I'm doing well, thanks for asking! What can I help you find on the menu?";
+    return null;
+  }
+
+  function pick(arr){ return arr[Math.floor(Math.random() * arr.length)]; }
+
+  // --- Menu item matching ---------------------------------------------
+
+  const MENU_LISTING_WORDS = new Set(['menu', 'items', 'offer', 'have', 'selling', 'sell', 'available', 'options', 'pastries', 'desserts', 'everything']);
+
+  function matchMenuItems(query){
+    const qTokens = tokenize(query);
+    if (!qTokens.length || !menuItems.length) return [];
+
+    const scored = menuItems.map(item => {
+      const itemTokens = tokenize(item.name);
+      let score = 0;
+      qTokens.forEach(qt => {
+        if (itemTokens.some(it => fuzzyMatch(qt, it))) score += 1;
+      });
+      return { item, score };
+    }).filter(s => s.score > 0);
+
+    if (!scored.length) return [];
+    scored.sort((a, b) => b.score - a.score);
+    const topScore = scored[0].score;
+    // keep everything within 1 point of the best match, so both items in a
+    // shared-price group ("chocolate croissant" + "zaatar croissant") show up
+    return scored.filter(s => s.score >= topScore - 1 && s.score >= Math.min(2, topScore))
+      .map(s => s.item)
+      .filter((item, i, arr) => arr.findIndex(x => x.name === item.name) === i); // dedupe
+  }
+
+  function wantsFullMenuListing(query){
+    const qTokens = tokenize(query);
+    return qTokens.some(t => MENU_LISTING_WORDS.has(t));
   }
 
   function addRow(role, html){
@@ -362,94 +489,79 @@
     return snip;
   }
 
-  function addTypingRow(){
-    const row = document.createElement('div');
-    row.className = 'row bot';
-    row.id = 'typing-row';
-    const bubble = document.createElement('div');
-    bubble.className = 'bubble';
-    bubble.innerHTML = `<p style="color:var(--slate)">…</p>`;
-    row.appendChild(bubble);
-    chatEl.appendChild(row);
-    chatEl.scrollTop = chatEl.scrollHeight;
+  function formatPrice(item){
+    return item.price ? item.price : 'price not listed';
   }
 
-  function removeTypingRow(){
-    const row = document.getElementById('typing-row');
-    if (row) row.remove();
+  function menuListHtml(items, heading){
+    let html = heading ? `<p>${heading}</p>` : '';
+    html += '<ul>' + items.map(it =>
+      `<li><b>${escapeHtml(it.name)}</b> — ${escapeHtml(formatPrice(it))}</li>`
+    ).join('') + '</ul>';
+    return html;
   }
 
-  function buildSystemPrompt(contextChunks){
-    const kbText = contextChunks.map(c =>
-      `Title: ${c.title || c.url}\nURL: ${c.url}\nContent:\n${c.text}`
-    ).join('\n\n---\n\n');
-
-    return `You are the friendly front-of-house assistant for Hush Coffee Shop, embedded in a chat widget on their website. Brand voice: "Still. Warm. Premium."
-
-You have the following excerpts pulled from hushcoffeeshop.com's public pages. This is your ONLY source of factual information about the shop (menu, prices, hours, location, etc):
-
-${kbText}
-
-How to respond:
-- Be warm, natural, and conversational — like a helpful barista, not a search engine. If someone just says "hello" or makes small talk, greet them back naturally; don't dump menu data on them.
-- When asked about the menu, prices, hours, location, or anything covered in the excerpts above, answer directly and accurately using ONLY that information. Quote prices and names exactly as given.
-- If the excerpts don't contain the answer, say so honestly and suggest checking the shop's Instagram @hushcoffeeshop — don't make anything up.
-- Keep answers concise (a few sentences, or a short list for menu items).
-- Never invent menu items, prices, hours, or details that aren't in the excerpts.
-- Write plain text or simple HTML (e.g. <p>, <ul><li>) suitable for a small chat bubble — no markdown headers, no code fences.`;
+  function sourceCardsFor(items){
+    const seen = new Set();
+    let html = '';
+    items.forEach(it => {
+      if (seen.has(it.url)) return;
+      seen.add(it.url);
+      html += `<div class="source">
+        <div class="src-title">${escapeHtml(it.title || it.url)}</div>
+        <a href="${it.url}" target="_blank" rel="noopener">View page →</a>
+      </div>`;
+    });
+    return html;
   }
 
-  async function answerQuery(query){
-    addTypingRow();
-    const contextChunks = pickContextChunks(query);
-    const qTokens = tokenize(query);
-    const matches = search(query, 3);
-
-    conversation.push({ role: 'user', content: query });
-
-    try{
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-6',
-          max_tokens: 1000,
-          system: buildSystemPrompt(contextChunks),
-          messages: conversation
-        })
-      });
-
-      if (!response.ok) throw new Error('HTTP ' + response.status);
-      const data = await response.json();
-      const replyText = (data.content || [])
-        .filter(b => b.type === 'text')
-        .map(b => b.text)
-        .join('\n')
-        .trim();
-
-      conversation.push({ role: 'assistant', content: replyText });
-
-      // Only show source cards when the reply is actually grounded in a
-      // specific page match (skip for pure greetings/small talk).
-      let html = replyText || `<p>Sorry, I didn't quite catch that — could you rephrase?</p>`;
-      if (matches.length){
-        matches.forEach(r => {
-          const snip = snippetAround(r.chunk.text, qTokens);
-          html += `<div class="source">
-            <div class="src-title">${escapeHtml(r.chunk.title || r.chunk.url)}</div>
-            <div class="src-snippet">${escapeHtml(snip)}</div>
-            <a href="${r.chunk.url}" target="_blank" rel="noopener">View page →</a>
-          </div>`;
-        });
-      }
-      removeTypingRow();
-      addRow('bot', html);
-    } catch (err){
-      console.error(err);
-      removeTypingRow();
-      conversation.pop(); // drop the user turn we couldn't get a reply for
-      addRow('bot', `<p>Sorry, I'm having trouble reaching the assistant right now. Please try again in a moment.</p>`);
+  function answerQuery(query){
+    // 1. Small talk — no need to touch the knowledge base at all.
+    const smallTalk = detectSmallTalk(query);
+    if (smallTalk){
+      addRow('bot', `<p>${escapeHtml(smallTalk)}</p>`);
+      return;
     }
+
+    // 2. Specific menu item(s) — fuzzy-matched against parsed menu data.
+    const itemMatches = matchMenuItems(query);
+    if (itemMatches.length && !wantsFullMenuListing(query)){
+      let html;
+      if (itemMatches.length === 1){
+        const it = itemMatches[0];
+        html = `<p>The <b>${escapeHtml(it.name)}</b> is ${escapeHtml(formatPrice(it))}.</p>`;
+      } else {
+        html = menuListHtml(itemMatches, "Here's what I found:");
+      }
+      html += sourceCardsFor(itemMatches);
+      addRow('bot', html);
+      return;
+    }
+
+    // 3. Whole-menu style questions.
+    if (wantsFullMenuListing(query) && menuItems.length){
+      const html = menuListHtml(menuItems, "Here's our full menu:") + sourceCardsFor(menuItems);
+      addRow('bot', html);
+      return;
+    }
+
+    // 4. Fall back to general passage search (hours, location, contact, etc).
+    const results = search(query);
+    if (results.length === 0){
+      addRow('bot', `<p>I couldn't find anything about that in hushcoffeeshop.com's public content. Try rephrasing, or check the site's Instagram <a href="https://instagram.com/hushcoffeeshop" target="_blank" rel="noopener">@hushcoffeeshop</a> directly.</p>`);
+      return;
+    }
+    const qTokens = tokenize(query);
+    let html = `<p>Here's what I found on the site:</p>`;
+    results.forEach(r => {
+      const snip = snippetAround(r.chunk.text, qTokens);
+      html += `<div class="source">
+        <div class="src-title">${escapeHtml(r.chunk.title || r.chunk.url)}</div>
+        <div class="src-snippet">${escapeHtml(snip)}</div>
+        <a href="${r.chunk.url}" target="_blank" rel="noopener">View page →</a>
+      </div>`;
+    });
+    addRow('bot', html);
   }
 
   form.addEventListener('submit', (e) => {
@@ -458,7 +570,7 @@ How to respond:
     if (!q) return;
     addRow('user', escapeHtml(q));
     input.value = '';
-    answerQuery(q);
+    setTimeout(() => answerQuery(q), 150); // tiny delay so it doesn't feel instant/robotic
   });
 
   function addChip(label){
@@ -481,6 +593,7 @@ How to respond:
     .then(data => {
       knowledgeBase = data;
       buildIndex(knowledgeBase);
+      menuItems = parseMenu(knowledgeBase);
       statusEl.textContent = `Ready — searching ${knowledgeBase.length} passages from hushcoffeeshop.com.`;
       input.disabled = false;
       sendBtn.disabled = false;
