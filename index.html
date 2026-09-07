@@ -275,6 +275,8 @@
   let df = new Map();       // term -> number of chunks containing it
   let docTerms = [];        // per-chunk term frequency map
   let totalDocs = 0;
+  let conversation = [];    // {role, content} history sent to the API
+  const MAX_CONTEXT_CHARS = 6000; // if the whole KB fits under this, just send all of it
 
   function tokenize(text){
     return (text.toLowerCase().match(/[a-z0-9]+/g) || [])
@@ -314,6 +316,20 @@
     return scores.filter(s => s.score > 0.15).slice(0, topK);
   }
 
+  function totalKbChars(){
+    return knowledgeBase.reduce((sum, c) => sum + (c.text || '').length, 0);
+  }
+
+  // Decide which chunks to hand to the model as grounding context.
+  // Small KB -> send everything so the model has full context (handles
+  // typos, rephrasing, "tell me about X" style questions, etc).
+  // Larger KB -> fall back to the top matches from the local search.
+  function pickContextChunks(query){
+    if (totalKbChars() <= MAX_CONTEXT_CHARS) return knowledgeBase;
+    const results = search(query, 5);
+    return results.length ? results.map(r => r.chunk) : knowledgeBase.slice(0, 3);
+  }
+
   function addRow(role, html){
     const row = document.createElement('div');
     row.className = 'row ' + role;
@@ -346,23 +362,94 @@
     return snip;
   }
 
-  function answerQuery(query){
-    const results = search(query);
-    if (results.length === 0){
-      addRow('bot', `<p>I couldn't find anything about that in hushcoffeeshop.com's public content. Try rephrasing, or check the site's Instagram <a href="https://instagram.com/hushcoffeeshop" target="_blank" rel="noopener">@hushcoffeeshop</a> directly.</p>`);
-      return;
-    }
+  function addTypingRow(){
+    const row = document.createElement('div');
+    row.className = 'row bot';
+    row.id = 'typing-row';
+    const bubble = document.createElement('div');
+    bubble.className = 'bubble';
+    bubble.innerHTML = `<p style="color:var(--slate)">…</p>`;
+    row.appendChild(bubble);
+    chatEl.appendChild(row);
+    chatEl.scrollTop = chatEl.scrollHeight;
+  }
+
+  function removeTypingRow(){
+    const row = document.getElementById('typing-row');
+    if (row) row.remove();
+  }
+
+  function buildSystemPrompt(contextChunks){
+    const kbText = contextChunks.map(c =>
+      `Title: ${c.title || c.url}\nURL: ${c.url}\nContent:\n${c.text}`
+    ).join('\n\n---\n\n');
+
+    return `You are the friendly front-of-house assistant for Hush Coffee Shop, embedded in a chat widget on their website. Brand voice: "Still. Warm. Premium."
+
+You have the following excerpts pulled from hushcoffeeshop.com's public pages. This is your ONLY source of factual information about the shop (menu, prices, hours, location, etc):
+
+${kbText}
+
+How to respond:
+- Be warm, natural, and conversational — like a helpful barista, not a search engine. If someone just says "hello" or makes small talk, greet them back naturally; don't dump menu data on them.
+- When asked about the menu, prices, hours, location, or anything covered in the excerpts above, answer directly and accurately using ONLY that information. Quote prices and names exactly as given.
+- If the excerpts don't contain the answer, say so honestly and suggest checking the shop's Instagram @hushcoffeeshop — don't make anything up.
+- Keep answers concise (a few sentences, or a short list for menu items).
+- Never invent menu items, prices, hours, or details that aren't in the excerpts.
+- Write plain text or simple HTML (e.g. <p>, <ul><li>) suitable for a small chat bubble — no markdown headers, no code fences.`;
+  }
+
+  async function answerQuery(query){
+    addTypingRow();
+    const contextChunks = pickContextChunks(query);
     const qTokens = tokenize(query);
-    let html = `<p>Here's what I found on the site:</p>`;
-    results.forEach(r => {
-      const snip = snippetAround(r.chunk.text, qTokens);
-      html += `<div class="source">
-        <div class="src-title">${escapeHtml(r.chunk.title || r.chunk.url)}</div>
-        <div class="src-snippet">${escapeHtml(snip)}</div>
-        <a href="${r.chunk.url}" target="_blank" rel="noopener">View page →</a>
-      </div>`;
-    });
-    addRow('bot', html);
+    const matches = search(query, 3);
+
+    conversation.push({ role: 'user', content: query });
+
+    try{
+      const response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-6',
+          max_tokens: 1000,
+          system: buildSystemPrompt(contextChunks),
+          messages: conversation
+        })
+      });
+
+      if (!response.ok) throw new Error('HTTP ' + response.status);
+      const data = await response.json();
+      const replyText = (data.content || [])
+        .filter(b => b.type === 'text')
+        .map(b => b.text)
+        .join('\n')
+        .trim();
+
+      conversation.push({ role: 'assistant', content: replyText });
+
+      // Only show source cards when the reply is actually grounded in a
+      // specific page match (skip for pure greetings/small talk).
+      let html = replyText || `<p>Sorry, I didn't quite catch that — could you rephrase?</p>`;
+      if (matches.length){
+        matches.forEach(r => {
+          const snip = snippetAround(r.chunk.text, qTokens);
+          html += `<div class="source">
+            <div class="src-title">${escapeHtml(r.chunk.title || r.chunk.url)}</div>
+            <div class="src-snippet">${escapeHtml(snip)}</div>
+            <a href="${r.chunk.url}" target="_blank" rel="noopener">View page →</a>
+          </div>`;
+        });
+      }
+      removeTypingRow();
+      addRow('bot', html);
+    } catch (err){
+      console.error(err);
+      removeTypingRow();
+      conversation.pop(); // drop the user turn we couldn't get a reply for
+      addRow('bot', `<p>Sorry, I'm having trouble reaching the assistant right now. Please try again in a moment.</p>`);
+    }
   }
 
   form.addEventListener('submit', (e) => {
@@ -371,7 +458,7 @@
     if (!q) return;
     addRow('user', escapeHtml(q));
     input.value = '';
-    setTimeout(() => answerQuery(q), 150); // tiny delay so it doesn't feel instant/robotic
+    answerQuery(q);
   });
 
   function addChip(label){
@@ -397,7 +484,7 @@
       statusEl.textContent = `Ready — searching ${knowledgeBase.length} passages from hushcoffeeshop.com.`;
       input.disabled = false;
       sendBtn.disabled = false;
-      addRow('bot', `<p>Hi! Ask me about the menu, hours, or where to find us — I'll search hushcoffeeshop.com's public pages for you.</p>`);
+      addRow('bot', `<p>Hi there! I'm the Hush Coffee Shop assistant — ask me anything about the menu, hours, or where to find us.</p>`);
       ['Menu', 'Hours', 'Location', 'Contact'].forEach(addChip);
     })
     .catch(err => {
