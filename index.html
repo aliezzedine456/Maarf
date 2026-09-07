@@ -283,11 +283,13 @@
   firebase.initializeApp(firebaseConfig);
   const db = firebase.database();
 
-  // Paste your DeepSeek API key here. NOTE: since there's no backend, this key
+  // Google AI Studio (Gemini) API key. NOTE: since there's no backend, this key
   // ships inside the page source and is visible to anyone who views it —
-  // this is the tradeoff of a no-backend setup.
-  const DEEPSEEK_API_KEY = "PASTE_YOUR_DEEPSEEK_API_KEY_HERE";
-  const DEEPSEEK_URL = "https://api.deepseek.com/chat/completions";
+  // this is the tradeoff of a no-backend setup. Consider restricting this key
+  // to your site's domain (HTTP referrer restriction) in Google AI Studio / Cloud Console.
+  const GEMINI_API_KEY = "AQ.Ab8RN6IKx6sWYYhjEQc_df3EuewMSG4a6a8RpHRatgqXp7DJYQ";
+  const GEMINI_MODEL = "gemini-3.5-flash";
+  const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
 
   const STOPWORDS = new Set(("the a an and or of to in on for with is are was were be been "
     + "this that these those it its as at by from your you we our i he she they them "
@@ -545,35 +547,35 @@
   }
 
   async function callChatFunction(query){
-    if (!DEEPSEEK_API_KEY || DEEPSEEK_API_KEY === "PASTE_YOUR_DEEPSEEK_API_KEY_HERE") {
-      throw new Error("DeepSeek API key not set in index.html");
+    if (!GEMINI_API_KEY || GEMINI_API_KEY === "PASTE_YOUR_GEMINI_API_KEY_HERE") {
+      throw new Error("Gemini API key not set in index.html");
     }
     const systemPrompt = `You are the Hush Coffee Shop assistant. Answer ONLY using the` +
       ` content below, scraped from hushcoffeeshop.com. If the answer isn't in the` +
       ` content, say you don't have that information and suggest checking Instagram` +
       ` @hushcoffeeshop. Keep answers short and friendly.\n\n${buildKbContext()}`;
 
-    const res = await fetch(DEEPSEEK_URL, {
+    const res = await fetch(GEMINI_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${DEEPSEEK_API_KEY}`
+        'x-goog-api-key': GEMINI_API_KEY
       },
       body: JSON.stringify({
-        model: 'deepseek-chat',
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: query }
+        systemInstruction: { parts: [{ text: systemPrompt }] },
+        contents: [
+          { role: 'user', parts: [{ text: query }] }
         ],
-        temperature: 0.3
+        generationConfig: { temperature: 0.3 }
       })
     });
     if (!res.ok) {
       const errText = await res.text().catch(() => '');
-      throw new Error(`DeepSeek error ${res.status}: ${errText}`);
+      throw new Error(`Gemini error ${res.status}: ${errText}`);
     }
     const data = await res.json();
-    const reply = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
+    const reply = data.candidates && data.candidates[0] && data.candidates[0].content &&
+      data.candidates[0].content.parts && data.candidates[0].content.parts.map(p => p.text || '').join('');
     return (reply || "Sorry, I didn't get a response — try asking again.").trim();
   }
 
