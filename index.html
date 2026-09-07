@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MU Site Assistant</title>
+<style>
+  :root{
+    --ink: #16213A;
+    --ink-soft: #3B4763;
+    --slate: #66707F;
+    --line: #DADFE6;
+    --surface: #FFFFFF;
+    --bg: #EEF0F3;
+    --gold: #A97D2A;
+    --gold-soft: #F3E7D2;
+    --radius: 10px;
+    --serif: Iowan Old Style, "Source Serif 4", Georgia, "Times New Roman", serif;
+    --sans: -apple-system, "Segoe UI", Inter, Roboto, Helvetica, Arial, sans-serif;
+  }
+
+  *{ box-sizing: border-box; }
+
+  html, body{
+    margin: 0;
+    height: 100%;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--sans);
+  }
+
+  body{
+    display: flex;
+    flex-direction: column;
+    max-width: 720px;
+    margin: 0 auto;
+    height: 100vh;
+  }
+
+  header{
+    padding: 22px 20px 16px;
+    border-bottom: 1px solid var(--line);
+    background: var(--surface);
+  }
+
+  .mark{
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .crest{
+    width: 38px;
+    height: 38px;
+    border-radius: 50%;
+    background: var(--ink);
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--serif);
+    font-size: 15px;
+    letter-spacing: 0.5px;
+    flex-shrink: 0;
+  }
+
+  h1{
+    font-family: var(--serif);
+    font-size: 22px;
+    font-weight: 600;
+    margin: 0;
+    line-height: 1.2;
+  }
+
+  .tagline{
+    font-size: 13px;
+    color: var(--slate);
+    margin-top: 2px;
+  }
+
+  .disclaimer{
+    margin-top: 14px;
+    font-size: 12.5px;
+    line-height: 1.5;
+    color: var(--ink-soft);
+    background: var(--gold-soft);
+    border: 1px solid #E4D2AC;
+    border-radius: var(--radius);
+    padding: 10px 12px;
+  }
+
+  .disclaimer b{ color: var(--ink); }
+
+  #status{
+    font-size: 12.5px;
+    color: var(--slate);
+    padding: 8px 20px 0;
+  }
+
+  main{
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .row{ display: flex; }
+  .row.user{ justify-content: flex-end; }
+  .row.bot{ justify-content: flex-start; }
+
+  .bubble{
+    max-width: 88%;
+    padding: 12px 14px;
+    border-radius: var(--radius);
+    font-size: 14.5px;
+    line-height: 1.55;
+  }
+
+  .row.user .bubble{
+    background: var(--ink);
+    color: #fff;
+    border-bottom-right-radius: 3px;
+  }
+
+  .row.bot .bubble{
+    background: var(--surface);
+    border: 1px solid var(--line);
+    color: var(--ink);
+    border-bottom-left-radius: 3px;
+  }
+
+  .bubble p{ margin: 0 0 8px; }
+  .bubble p:last-child{ margin-bottom: 0; }
+
+  .source{
+    display: block;
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px dashed var(--line);
+    font-size: 13px;
+  }
+
+  .source:first-of-type{ margin-top: 12px; }
+
+  .source .src-title{
+    font-weight: 600;
+    color: var(--ink);
+  }
+
+  .source .src-snippet{
+    color: var(--ink-soft);
+    margin-top: 3px;
+  }
+
+  .source a{
+    color: var(--gold);
+    text-decoration: none;
+    font-size: 12.5px;
+    display: inline-block;
+    margin-top: 4px;
+  }
+
+  .source a:hover{ text-decoration: underline; }
+
+  .chips{
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 0 20px 14px;
+  }
+
+  .chip{
+    font-size: 12.5px;
+    padding: 6px 12px;
+    border-radius: 999px;
+    border: 1px solid var(--line);
+    background: var(--surface);
+    color: var(--ink-soft);
+    cursor: pointer;
+  }
+
+  .chip:hover{ border-color: var(--gold); color: var(--ink); }
+
+  form{
+    display: flex;
+    gap: 10px;
+    padding: 14px 20px 20px;
+    border-top: 1px solid var(--line);
+    background: var(--surface);
+  }
+
+  input[type="text"]{
+    flex: 1;
+    padding: 12px 14px;
+    border-radius: var(--radius);
+    border: 1px solid var(--line);
+    font-size: 14.5px;
+    font-family: var(--sans);
+    background: var(--bg);
+    color: var(--ink);
+  }
+
+  input[type="text"]:focus{
+    outline: 2px solid var(--gold);
+    outline-offset: 1px;
+  }
+
+  button{
+    padding: 0 20px;
+    border-radius: var(--radius);
+    border: none;
+    background: var(--ink);
+    color: #fff;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    font-family: var(--sans);
+  }
+
+  button:hover{ background: var(--ink-soft); }
+  button:focus-visible, .chip:focus-visible{ outline: 2px solid var(--gold); outline-offset: 2px; }
+  button:disabled{ opacity: 0.5; cursor: not-allowed; }
+
+  @media (prefers-reduced-motion: reduce){
+    *{ scroll-behavior: auto !important; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="mark">
+    <div class="crest">MU</div>
+    <div>
+      <h1>MU Site Assistant</h1>
+      <div class="tagline">Answers pulled from mu.edu.lb</div>
+    </div>
+  </div>
+  <div class="disclaimer">
+    <b>What this is:</b> a search assistant that reads and answers from the full public content of mu.edu.lb — programs, admissions, faculties, news, and more.
+  </div>
+</header>
+
+<div id="status">Loading site content…</div>
+
+<main id="chat"></main>
+
+<div class="chips" id="chips"></div>
+
+<form id="composer">
+  <input type="text" id="input" placeholder="Ask about programs, admissions, contact info…" autocomplete="off" disabled>
+  <button type="submit" id="send" disabled>Send</button>
+</form>
+
+<script>
+(function(){
+  const chatEl = document.getElementById('chat');
+  const statusEl = document.getElementById('status');
+  const form = document.getElementById('composer');
+  const input = document.getElementById('input');
+  const sendBtn = document.getElementById('send');
+  const chipsEl = document.getElementById('chips');
+
+  const STOPWORDS = new Set(("the a an and or of to in on for with is are was were be been "
+    + "this that these those it its as at by from your you we our i he she they them "
+    + "will can may about into over under more most such not no do does did has have had "
+    + "what where when who why how which").split(" "));
+
+  let knowledgeBase = [];
+  let df = new Map();       // term -> number of chunks containing it
+  let docTerms = [];        // per-chunk term frequency map
+  let totalDocs = 0;
+
+  function tokenize(text){
+    return (text.toLowerCase().match(/[a-z0-9]+/g) || [])
+      .filter(t => t.length > 1 && !STOPWORDS.has(t));
+  }
+
+  function buildIndex(chunks){
+    totalDocs = chunks.length;
+    chunks.forEach(chunk => {
+      const tokens = tokenize(chunk.text + " " + chunk.title);
+      const tf = new Map();
+      tokens.forEach(t => tf.set(t, (tf.get(t) || 0) + 1));
+      docTerms.push(tf);
+      new Set(tokens).forEach(t => df.set(t, (df.get(t) || 0) + 1));
+    });
+  }
+
+  function idf(term){
+    const n = df.get(term) || 0;
+    if (n === 0) return 0;
+    return Math.log((totalDocs + 1) / n) + 1;
+  }
+
+  function search(query, topK = 3){
+    const qTokens = tokenize(query);
+    if (qTokens.length === 0) return [];
+    const scores = knowledgeBase.map((chunk, i) => {
+      const tf = docTerms[i];
+      let score = 0;
+      qTokens.forEach(t => {
+        const f = tf.get(t) || 0;
+        if (f > 0) score += f * idf(t);
+      });
+      return { chunk, score };
+    });
+    scores.sort((a, b) => b.score - a.score);
+    return scores.filter(s => s.score > 0.15).slice(0, topK);
+  }
+
+  function addRow(role, html){
+    const row = document.createElement('div');
+    row.className = 'row ' + role;
+    const bubble = document.createElement('div');
+    bubble.className = 'bubble';
+    bubble.innerHTML = html;
+    row.appendChild(bubble);
+    chatEl.appendChild(row);
+    chatEl.scrollTop = chatEl.scrollHeight;
+  }
+
+  function escapeHtml(s){
+    return s.replace(/[&<>"']/g, c => ({
+      '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'
+    }[c]));
+  }
+
+  function snippetAround(text, terms, maxLen = 220){
+    const lower = text.toLowerCase();
+    let hitIdx = -1;
+    for (const t of terms){
+      const idx = lower.indexOf(t);
+      if (idx !== -1 && (hitIdx === -1 || idx < hitIdx)) hitIdx = idx;
+    }
+    if (hitIdx === -1) return text.slice(0, maxLen) + (text.length > maxLen ? '…' : '');
+    const start = Math.max(0, hitIdx - 60);
+    let snip = text.slice(start, start + maxLen);
+    if (start > 0) snip = '…' + snip;
+    if (start + maxLen < text.length) snip = snip + '…';
+    return snip;
+  }
+
+  function answerQuery(query){
+    const results = search(query);
+    if (results.length === 0){
+      addRow('bot', `<p>I couldn't find anything about that in mu.edu.lb's public content. Try rephrasing, or check the site's own search / contact page directly.</p>`);
+      return;
+    }
+    const qTokens = tokenize(query);
+    let html = `<p>Here's what I found on the site:</p>`;
+    results.forEach(r => {
+      const snip = snippetAround(r.chunk.text, qTokens);
+      html += `<div class="source">
+        <div class="src-title">${escapeHtml(r.chunk.title || r.chunk.url)}</div>
+        <div class="src-snippet">${escapeHtml(snip)}</div>
+        <a href="${r.chunk.url}" target="_blank" rel="noopener">View page →</a>
+      </div>`;
+    });
+    addRow('bot', html);
+  }
+
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const q = input.value.trim();
+    if (!q) return;
+    addRow('user', escapeHtml(q));
+    input.value = '';
+    setTimeout(() => answerQuery(q), 150); // tiny delay so it doesn't feel instant/robotic
+  });
+
+  function addChip(label){
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'chip';
+    chip.textContent = label;
+    chip.addEventListener('click', () => {
+      input.value = label;
+      form.dispatchEvent(new Event('submit'));
+    });
+    chipsEl.appendChild(chip);
+  }
+
+  fetch('./knowledge_base.json')
+    .then(res => {
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      return res.json();
+    })
+    .then(data => {
+      knowledgeBase = data;
+      buildIndex(knowledgeBase);
+      statusEl.textContent = `Ready — searching ${knowledgeBase.length} passages from mu.edu.lb.`;
+      input.disabled = false;
+      sendBtn.disabled = false;
+      addRow('bot', `<p>Hi! Ask me about admissions, programs, faculties, or contact info — I'll search mu.edu.lb's public pages for you.</p>`);
+      ['Admissions', 'Programs offered', 'Contact info', 'Campus location'].forEach(addChip);
+    })
+    .catch(err => {
+      statusEl.textContent = 'Could not load knowledge_base.json.';
+      addRow('bot', `<p><b>Setup needed:</b> this page couldn't load <code>knowledge_base.json</code>. Make sure that file sits in the same folder as this page in your GitHub repo (run the Colab script to generate it first).</p>`);
+      console.error(err);
+    });
+})();
+</script>
+
+</body>
+</html>
