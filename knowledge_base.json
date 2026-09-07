@@ -1,8 +1,10 @@
-[
-  {
-    "id": 0,
-    "url": "https://hushcoffeeshop.com",
-    "title": "Hush Coffee Shop — Still. Warm. Premium.",
-    "text": "HUSH\nCoffee  Shop\nStill. Warm. Premium. A breath before a sip.\nThe Menu\nOur Menu\nCheese Croissant\n350,000 L.L.\nChocolate Croissant\nZaaatar Croissant\n250,000 L.L.\nBrownie\n300,000 L.L.\nChocolate Eclair\nCookie\nLotus Eclair\nPistachio Eclair\nCrispy Cream\n600,000 L.L.\nKorean Rolls\n650,000 L.L.\nMoments\nThe Hush Experience\nPhotographs coming soon.\n@hushcoffeeshop"
-  }
-]
+{
+  "knowledgeBase": [
+    {
+      "id": 0,
+      "url": "https://hushcoffeeshop.com",
+      "title": "Hush Coffee Shop \u2014 Still. Warm. Premium.",
+      "text": "HUSH\nCoffee\u00a0\u00a0Shop\nStill. Warm. Premium. A breath before a sip.\nThe Menu\nOur Menu\nCheese Croissant\n350,000 L.L.\nChocolate Croissant\nZaaatar Croissant\n250,000 L.L.\nBrownie\n300,000 L.L.\nChocolate Eclair\nCookie\nLotus Eclair\nPistachio Eclair\nCrispy Cream\n600,000 L.L.\nKorean Rolls\n650,000 L.L.\nMoments\nThe Hush Experience\nPhotographs coming soon.\n@hushcoffeeshop"
+    }
+  ]
+}

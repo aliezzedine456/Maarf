@@ -257,6 +257,9 @@
   <button type="submit" id="send" disabled>Send</button>
 </form>
 
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-database-compat.js"></script>
+
 <script>
 (function(){
   const chatEl = document.getElementById('chat');
@@ -266,14 +269,25 @@
   const sendBtn = document.getElementById('send');
   const chipsEl = document.getElementById('chips');
 
-  // --- DeepSeek API config -------------------------------------------
-  // WARNING: this key is embedded in client-side code and is visible to
-  // anyone who views the page source / repo. Anyone could copy it and
-  // use it on your DeepSeek account. Only use this setup for a low-risk
-  // demo, never for anything you care about protecting.
-  const DEEPSEEK_API_KEY = "sk-7cc01f63294e4574acaabfbbdc6b663d";
+  // --- Firebase (Realtime Database only — no backend / Cloud Functions) ---
+  const firebaseConfig = {
+    apiKey: "AIzaSyDs2lwbuXcorq8kK1WIM3l1-xsZlUXmFsM",
+    authDomain: "hushai-87cab.firebaseapp.com",
+    databaseURL: "https://hushai-87cab-default-rtdb.europe-west1.firebasedatabase.app",
+    projectId: "hushai-87cab",
+    storageBucket: "hushai-87cab.firebasestorage.app",
+    messagingSenderId: "582528634211",
+    appId: "1:582528634211:web:09276e3de47e938794d756",
+    measurementId: "G-V57S0XZP3F"
+  };
+  firebase.initializeApp(firebaseConfig);
+  const db = firebase.database();
+
+  // Paste your DeepSeek API key here. NOTE: since there's no backend, this key
+  // ships inside the page source and is visible to anyone who views it —
+  // this is the tradeoff of a no-backend setup.
+  const DEEPSEEK_API_KEY = "PASTE_YOUR_DEEPSEEK_API_KEY_HERE";
   const DEEPSEEK_URL = "https://api.deepseek.com/chat/completions";
-  const DEEPSEEK_MODEL = "deepseek-chat";
 
   const STOPWORDS = new Set(("the a an and or of to in on for with is are was were be been "
     + "this that these those it its as at by from your you we our i he she they them "
@@ -524,18 +538,21 @@
     return html;
   }
 
-  function buildSystemPrompt(){
-    const kbText = knowledgeBase.map(c => `--- ${c.title} (${c.url}) ---\n${c.text}`).join('\n\n');
-    return `You are the Hush Coffee Shop Assistant, a friendly helper for the site hushcoffeeshop.com ("Still. Warm. Premium.").
-Answer questions ONLY using the site content provided below. If the answer isn't in the content, say you don't have that
-information on the site and suggest checking their Instagram @hushcoffeeshop. Keep answers short, warm, and conversational.
-When listing menu items with prices, use a simple bullet list.
-
-SITE CONTENT:
-${kbText}`;
+  function buildKbContext(){
+    // Keep the context reasonably small — full page text plus parsed menu.
+    const pages = knowledgeBase.map(c => `Title: ${c.title}\nURL: ${c.url}\n${c.text}`).join('\n\n---\n\n');
+    return pages;
   }
 
-  async function callDeepSeek(query){
+  async function callChatFunction(query){
+    if (!DEEPSEEK_API_KEY || DEEPSEEK_API_KEY === "PASTE_YOUR_DEEPSEEK_API_KEY_HERE") {
+      throw new Error("DeepSeek API key not set in index.html");
+    }
+    const systemPrompt = `You are the Hush Coffee Shop assistant. Answer ONLY using the` +
+      ` content below, scraped from hushcoffeeshop.com. If the answer isn't in the` +
+      ` content, say you don't have that information and suggest checking Instagram` +
+      ` @hushcoffeeshop. Keep answers short and friendly.\n\n${buildKbContext()}`;
+
     const res = await fetch(DEEPSEEK_URL, {
       method: 'POST',
       headers: {
@@ -543,20 +560,21 @@ ${kbText}`;
         'Authorization': `Bearer ${DEEPSEEK_API_KEY}`
       },
       body: JSON.stringify({
-        model: DEEPSEEK_MODEL,
+        model: 'deepseek-chat',
         messages: [
-          { role: 'system', content: buildSystemPrompt() },
+          { role: 'system', content: systemPrompt },
           { role: 'user', content: query }
         ],
-        temperature: 0.4
+        temperature: 0.3
       })
     });
     if (!res.ok) {
       const errText = await res.text().catch(() => '');
-      throw new Error(`DeepSeek API error ${res.status}: ${errText}`);
+      throw new Error(`DeepSeek error ${res.status}: ${errText}`);
     }
     const data = await res.json();
-    return data.choices?.[0]?.message?.content?.trim() || "Sorry, I didn't get a response — try asking again.";
+    const reply = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
+    return (reply || "Sorry, I didn't get a response — try asking again.").trim();
   }
 
   function addTypingRow(){
@@ -601,7 +619,7 @@ ${kbText}`;
     sendBtn.disabled = true;
     input.disabled = true;
     try {
-      const reply = await callDeepSeek(query);
+      const reply = await callChatFunction(query);
       removeTypingRow();
       addRow('bot', markdownLiteToHtml(reply));
     } catch (err) {
@@ -685,26 +703,42 @@ ${kbText}`;
     chipsEl.appendChild(chip);
   }
 
-  fetch('./knowledge_base.json')
-    .then(res => {
-      if (!res.ok) throw new Error('HTTP ' + res.status);
-      return res.json();
-    })
-    .then(data => {
-      knowledgeBase = data;
-      buildIndex(knowledgeBase);
-      menuItems = parseMenu(knowledgeBase);
-      statusEl.textContent = `Ready — searching ${knowledgeBase.length} passages from hushcoffeeshop.com.`;
+  let firstLoad = true;
+
+  db.ref('knowledgeBase').on('value', (snapshot) => {
+    const data = snapshot.val();
+    if (!data) {
+      statusEl.textContent = 'No content found in the database yet.';
+      if (firstLoad) {
+        addRow('bot', `<p><b>Setup needed:</b> the <code>knowledgeBase</code> node in your Realtime Database is empty. Import your site content there first (see the setup instructions).</p>`);
+        firstLoad = false;
+      }
+      return;
+    }
+    // RTDB returns an object keyed by push-id or index; normalize to an array.
+    knowledgeBase = Array.isArray(data) ? data.filter(Boolean) : Object.values(data);
+    // Reset the search index each time, since content may have changed.
+    df = new Map();
+    docTerms = [];
+    totalDocs = 0;
+    buildIndex(knowledgeBase);
+    menuItems = parseMenu(knowledgeBase);
+
+    if (firstLoad) {
+      statusEl.textContent = 'Ready — live assistant connected.';
       input.disabled = false;
       sendBtn.disabled = false;
       addRow('bot', `<p>Hi there! I'm the Hush Coffee Shop assistant — ask me anything about the menu, hours, or where to find us.</p>`);
       ['Menu', 'Hours', 'Location', 'Contact'].forEach(addChip);
-    })
-    .catch(err => {
-      statusEl.textContent = 'Could not load knowledge_base.json.';
-      addRow('bot', `<p><b>Setup needed:</b> this page couldn't load <code>knowledge_base.json</code>. Make sure that file sits in the same folder as this page in your GitHub repo (run the Colab script to generate it first).</p>`);
-      console.error(err);
-    });
+      firstLoad = false;
+    } else {
+      statusEl.textContent = 'Menu updated — answers now reflect the latest content.';
+    }
+  }, (err) => {
+    statusEl.textContent = 'Could not connect to the database.';
+    addRow('bot', `<p><b>Connection error:</b> ${escapeHtml(err.message)}. Check your Realtime Database security rules allow public read on <code>knowledgeBase</code>.</p>`);
+    console.error(err);
+  });
 })();
 </script>
 
