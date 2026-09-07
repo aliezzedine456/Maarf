@@ -3,19 +3,21 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>MU Site Assistant</title>
+<title>Hush Coffee Shop Assistant</title>
 <style>
   :root{
-    --ink: #16213A;
-    --ink-soft: #3B4763;
-    --slate: #66707F;
-    --line: #DADFE6;
+    --ink: #23302E;
+    --ink-soft: #43524F;
+    --slate: #6E7C79;
+    --line: #DCE3E0;
     --surface: #FFFFFF;
-    --bg: #EEF0F3;
-    --gold: #A97D2A;
-    --gold-soft: #F3E7D2;
+    --bg: #F1F0EA;
+    --sage: #819A9F;
+    --sage-deep: #5E7377;
+    --warm: #B9723F;
+    --warm-soft: #F3E3D3;
     --radius: 10px;
-    --serif: Iowan Old Style, "Source Serif 4", Georgia, "Times New Roman", serif;
+    --serif: "Iowan Old Style", "Source Serif 4", Georgia, "Times New Roman", serif;
     --sans: -apple-system, "Segoe UI", Inter, Roboto, Helvetica, Arial, sans-serif;
   }
 
@@ -53,13 +55,13 @@
     width: 38px;
     height: 38px;
     border-radius: 50%;
-    background: var(--ink);
+    background: var(--sage-deep);
     color: #fff;
     display: flex;
     align-items: center;
     justify-content: center;
     font-family: var(--serif);
-    font-size: 15px;
+    font-size: 14px;
     letter-spacing: 0.5px;
     flex-shrink: 0;
   }
@@ -76,6 +78,7 @@
     font-size: 13px;
     color: var(--slate);
     margin-top: 2px;
+    letter-spacing: 0.3px;
   }
 
   .disclaimer{
@@ -83,8 +86,8 @@
     font-size: 12.5px;
     line-height: 1.5;
     color: var(--ink-soft);
-    background: var(--gold-soft);
-    border: 1px solid #E4D2AC;
+    background: var(--warm-soft);
+    border: 1px solid #E5CBAE;
     border-radius: var(--radius);
     padding: 10px 12px;
   }
@@ -119,7 +122,7 @@
   }
 
   .row.user .bubble{
-    background: var(--ink);
+    background: var(--sage-deep);
     color: #fff;
     border-bottom-right-radius: 3px;
   }
@@ -155,7 +158,7 @@
   }
 
   .source a{
-    color: var(--gold);
+    color: var(--warm);
     text-decoration: none;
     font-size: 12.5px;
     display: inline-block;
@@ -181,7 +184,7 @@
     cursor: pointer;
   }
 
-  .chip:hover{ border-color: var(--gold); color: var(--ink); }
+  .chip:hover{ border-color: var(--warm); color: var(--ink); }
 
   form{
     display: flex;
@@ -203,7 +206,7 @@
   }
 
   input[type="text"]:focus{
-    outline: 2px solid var(--gold);
+    outline: 2px solid var(--warm);
     outline-offset: 1px;
   }
 
@@ -211,7 +214,7 @@
     padding: 0 20px;
     border-radius: var(--radius);
     border: none;
-    background: var(--ink);
+    background: var(--sage-deep);
     color: #fff;
     font-size: 14px;
     font-weight: 600;
@@ -219,8 +222,8 @@
     font-family: var(--sans);
   }
 
-  button:hover{ background: var(--ink-soft); }
-  button:focus-visible, .chip:focus-visible{ outline: 2px solid var(--gold); outline-offset: 2px; }
+  button:hover{ background: var(--ink); }
+  button:focus-visible, .chip:focus-visible{ outline: 2px solid var(--warm); outline-offset: 2px; }
   button:disabled{ opacity: 0.5; cursor: not-allowed; }
 
   @media (prefers-reduced-motion: reduce){
@@ -232,14 +235,14 @@
 
 <header>
   <div class="mark">
-    <div class="crest">MU</div>
+    <div class="crest">HC</div>
     <div>
-      <h1>MU Site Assistant</h1>
-      <div class="tagline">Answers pulled from mu.edu.lb</div>
+      <h1>Hush Coffee Shop Assistant</h1>
+      <div class="tagline">Still. Warm. Premium. — answers pulled from hushcoffeeshop.com</div>
     </div>
   </div>
   <div class="disclaimer">
-    <b>What this is:</b> a search assistant that reads and answers from the full public content of mu.edu.lb — programs, admissions, faculties, news, and more.
+    <b>What this is:</b> a search assistant that reads and answers from the public content of hushcoffeeshop.com — menu, hours, location, and more.
   </div>
 </header>
 
@@ -250,7 +253,7 @@
 <div class="chips" id="chips"></div>
 
 <form id="composer">
-  <input type="text" id="input" placeholder="Ask about programs, admissions, contact info…" autocomplete="off" disabled>
+  <input type="text" id="input" placeholder="Ask about the menu, hours, location…" autocomplete="off" disabled>
   <button type="submit" id="send" disabled>Send</button>
 </form>
 
@@ -346,7 +349,7 @@
   function answerQuery(query){
     const results = search(query);
     if (results.length === 0){
-      addRow('bot', `<p>I couldn't find anything about that in mu.edu.lb's public content. Try rephrasing, or check the site's own search / contact page directly.</p>`);
+      addRow('bot', `<p>I couldn't find anything about that in hushcoffeeshop.com's public content. Try rephrasing, or check the site's Instagram <a href="https://instagram.com/hushcoffeeshop" target="_blank" rel="noopener">@hushcoffeeshop</a> directly.</p>`);
       return;
     }
     const qTokens = tokenize(query);
@@ -391,11 +394,11 @@
     .then(data => {
       knowledgeBase = data;
       buildIndex(knowledgeBase);
-      statusEl.textContent = `Ready — searching ${knowledgeBase.length} passages from mu.edu.lb.`;
+      statusEl.textContent = `Ready — searching ${knowledgeBase.length} passages from hushcoffeeshop.com.`;
       input.disabled = false;
       sendBtn.disabled = false;
-      addRow('bot', `<p>Hi! Ask me about admissions, programs, faculties, or contact info — I'll search mu.edu.lb's public pages for you.</p>`);
-      ['Admissions', 'Programs offered', 'Contact info', 'Campus location'].forEach(addChip);
+      addRow('bot', `<p>Hi! Ask me about the menu, hours, or where to find us — I'll search hushcoffeeshop.com's public pages for you.</p>`);
+      ['Menu', 'Hours', 'Location', 'Contact'].forEach(addChip);
     })
     .catch(err => {
       statusEl.textContent = 'Could not load knowledge_base.json.';
